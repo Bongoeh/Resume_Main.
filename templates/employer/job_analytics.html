@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Job Analytics | CV Drop</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #667eea;
+            --secondary-color: #764ba2;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f7fa;
+        }
+        
+        .employer-navbar {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 1rem 0;
+        }
+        
+        .employer-navbar .navbar-brand {
+            font-weight: 700;
+            font-size: 1.5rem;
+        }
+        
+        .employer-navbar .nav-link {
+            font-weight: 500;
+            margin-left: 1rem;
+        }
+        
+        .employer-navbar .nav-link i {
+            margin-right: 8px;
+        }
+        
+        .analytics-container {
+            margin: 2rem 0;
+        }
+        
+        .job-header {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            margin-bottom: 2rem;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin: 2rem 0;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+        
+        .stat-card h3 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            font-weight: 700;
+        }
+        
+        .stat-card p {
+            margin: 0;
+            opacity: 0.9;
+        }
+        
+        .clicks-table {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+        }
+        
+        .table {
+            margin-bottom: 0;
+        }
+        
+        .table thead {
+            background-color: #f8f9fa;
+        }
+        
+        .table thead th {
+            font-weight: 600;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        
+        .user-badge {
+            display: inline-block;
+            padding: 0.35rem 0.75rem;
+            border-radius: 50px;
+            background-color: #e0e7ff;
+            color: var(--primary-color);
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        
+        .no-clicks {
+            text-align: center;
+            padding: 3rem;
+            color: #64748b;
+        }
+        
+        .no-clicks i {
+            font-size: 3rem;
+            color: #cbd5e0;
+            margin-bottom: 1rem;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 0.35rem 0.75rem;
+            border-radius: 50px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        
+        .btn-group .btn {
+            padding: 0.25rem 0.75rem;
+        }
+
+        .status-select.pending {
+            background-color: #fef3c7;
+            color: #92400e;
+            border-color: #fde68a;
+        }
+
+        .status-select.reviewing {
+            background-color: #dbeafe;
+            color: #1e3a8a;
+            border-color: #bfdbfe;
+        }
+
+        .status-select.interview {
+            background-color: #e0e7ff;
+            color: #3730a3;
+            border-color: #c7d2fe;
+        }
+
+        .status-select.accepted {
+            background-color: #d1fae5;
+            color: #065f46;
+            border-color: #a7f3d0;
+        }
+
+        .status-select.rejected {
+            background-color: #fee2e2;
+            color: #991b1b;
+            border-color: #fecaca;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark employer-navbar">
+        <div class="container">
+            <a class="navbar-brand" href="{{ url_for('employer_dashboard') }}">
+                <i class="fas fa-briefcase me-2"></i>CV Drop
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#employerNavbar">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="employerNavbar">
+                <div class="navbar-nav ms-auto">
+                    <a class="nav-link" href="{{ url_for('employer_dashboard') }}">
+                        <i class="fas fa-tachometer-alt"></i>Dashboard
+                    </a>
+                    <a class="nav-link" href="{{ url_for('employer_jobs') }}">
+                        <i class="fas fa-briefcase"></i>Jobs
+                    </a>
+                    <a class="nav-link" href="{{ url_for('logout') }}">
+                        <i class="fas fa-sign-out-alt"></i>Logout
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container analytics-container">
+        <div class="job-header">
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <h2><i class="fas fa-chart-line me-2"></i>Job Applications</h2>
+                    <h4 class="mt-3">{{ job.job_title }}</h4>
+                    <p class="text-muted">{{ job.company_name }}</p>
+                </div>
+                <a href="{{ url_for('employer_jobs') }}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left me-2"></i>Back to Jobs
+                </a>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <h3>{{ applications|length }}</h3>
+                    <p>Total Applications</p>
+                </div>
+                <div class="stat-card">
+                    <h3>{{ applications|selectattr('status', 'equalto', 'Pending')|list|length }}</h3>
+                    <p>Pending Review</p>
+                </div>
+                <div class="stat-card">
+                    <h3>{{ applications|selectattr('status', 'equalto', 'Interview')|list|length }}</h3>
+                    <p>Interviews</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="clicks-table">
+            <h4 class="mb-4">
+                <i class="fas fa-users me-2"></i>Applicants
+            </h4>
+            
+            {% if applications %}
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th>Applicant</th>
+                            <th>Contact</th>
+                            <th>Applied Date</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for application in applications %}
+                        <tr>
+                            <td>
+                                <div>
+                                    <strong>{{ application.student_name }}</strong>
+                                    <br>
+                                    <small class="text-muted">{{ application.student_email }}</small>
+                                </div>
+                            </td>
+                            <td>
+                                {% if application.student_phone %}
+                                    <i class="fas fa-phone me-1"></i>{{ application.student_phone }}
+                                {% else %}
+                                    <span class="text-muted">Not provided</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <i class="fas fa-calendar-alt text-muted me-2"></i>
+                                {{ application.application_date.strftime('%b %d, %Y') }}
+                                <br>
+                                <small class="text-muted">{{ application.application_date.strftime('%H:%M') }}</small>
+                            </td>
+                            <td>
+                                <form action="{{ url_for('employer_update_application_status', application_id=application.id) }}" 
+                                      method="post" style="display: inline;">
+                                    <select name="status" class="form-select form-select-sm status-select
+                                            {% if application.status == 'Pending' %}pending
+                                            {% elif application.status == 'Reviewing' %}reviewing
+                                            {% elif application.status == 'Interview' %}interview
+                                            {% elif application.status == 'Accepted' %}accepted
+                                            {% elif application.status == 'Rejected' %}rejected
+                                            {% endif %}"
+                                            onchange="this.form.submit()">
+                                        <option value="Pending" {% if application.status == 'Pending' %}selected{% endif %}>Pending</option>
+                                        <option value="Reviewing" {% if application.status == 'Reviewing' %}selected{% endif %}>Reviewing</option>
+                                        <option value="Interview" {% if application.status == 'Interview' %}selected{% endif %}>Interview</option>
+                                        <option value="Accepted" {% if application.status == 'Accepted' %}selected{% endif %}>Accepted</option>
+                                        <option value="Rejected" {% if application.status == 'Rejected' %}selected{% endif %}>Rejected</option>
+                                    </select>
+                                </form>
+                            </td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    <a href="{{ url_for('employer_download_application_cv', application_id=application.id) }}" 
+                                       class="btn btn-sm btn-primary" title="Download CV">
+                                        <i class="fas fa-download"></i> CV
+                                    </a>
+                                    {% if application.cover_letter %}
+                                    <button type="button" class="btn btn-sm btn-info text-white" 
+                                            data-bs-toggle="modal" data-bs-target="#coverLetterModal{{ application.id }}"
+                                            title="View Cover Letter">
+                                        <i class="fas fa-envelope-open-text"></i>
+                                    </button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        
+                        <!-- Cover Letter Modal -->
+                        {% if application.cover_letter %}
+                        <div class="modal fade" id="coverLetterModal{{ application.id }}" tabindex="-1">
+                            <div class="modal-dialog modal-lg">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title">Cover Letter - {{ application.student_name }}</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p style="white-space: pre-wrap;">{{ application.cover_letter }}</p>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="no-clicks">
+                <i class="fas fa-inbox"></i>
+                <h5>No applications yet</h5>
+                <p class="text-muted">Applications will appear here once students start applying</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
