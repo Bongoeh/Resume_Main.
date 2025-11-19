@@ -50,11 +50,11 @@ class JobPosting(db.Model):
     company_name = db.Column(db.String(100), nullable=False)
     job_title = db.Column(db.String(200), nullable=False)
     job_description = db.Column(db.Text, nullable=False)
-    job_type = db.Column(db.String(50))  # Full-time, Part-time, Internship, etc.
+    job_type = db.Column(db.String(50))
     location = db.Column(db.String(100))
     salary_range = db.Column(db.String(100))
     requirements = db.Column(db.Text)
-    application_link = db.Column(db.String(500), nullable=False)
+    application_link = db.Column(db.String(500), nullable=True)
     posted_date = db.Column(db.DateTime, default=db.func.current_timestamp())
     is_active = db.Column(db.Boolean, default=True)
     click_count = db.Column(db.Integer, default=0)
@@ -65,6 +65,19 @@ class JobClick(db.Model):
     student_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     clicked_date = db.Column(db.DateTime, default=db.func.current_timestamp())
     ip_address = db.Column(db.String(50))
+
+class JobApplication(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    job_id = db.Column(db.Integer, db.ForeignKey('job_posting.id'), nullable=False)
+    student_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    student_name = db.Column(db.String(100), nullable=False)
+    student_email = db.Column(db.String(120), nullable=False)
+    student_phone = db.Column(db.String(20))
+    cover_letter = db.Column(db.Text)
+    cv_filename = db.Column(db.String(255), nullable=False)
+    cv_original_filename = db.Column(db.String(255), nullable=False)
+    application_date = db.Column(db.DateTime, default=db.func.current_timestamp())
+    status = db.Column(db.String(50), default='Pending')
 
 class Company(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -113,7 +126,7 @@ def create_app():
     def index():
         return render_template("index.html")
 
-    # AUTH ROUTES
+    # ==================== AUTH ROUTES ====================
     @app.route('/register', methods=['GET', 'POST'])
     def register():
         if request.method == 'POST':
@@ -178,7 +191,48 @@ def create_app():
         flash('You have been logged out.', 'info')
         return redirect(url_for('login'))
 
-    # STUDENT ROUTES
+    @app.route('/forgot_password', methods=['GET', 'POST'])
+    def forgot_password():
+        if request.method == 'POST':
+            email = request.form.get('email', '').strip()
+            user = User.query.filter_by(email=email).first()
+            if not user:
+                flash('No account found with that email.', 'danger')
+                return render_template('forgot_password.html')
+            token = serializer.dumps(user.id)
+            reset_url = url_for('reset_password', token=token, _external=True)
+            flash(f'Password reset link (simulated): {reset_url}', 'info')
+            flash('A password reset link has been sent to your email (simulated).', 'success')
+            return redirect(url_for('login'))
+        return render_template('forgot_password.html')
+
+    @app.route('/reset_password/<token>', methods=['GET', 'POST'])
+    def reset_password(token):
+        try:
+            user_id = serializer.loads(token, max_age=3600)
+        except itsdangerous.BadSignature:
+            flash('Invalid or expired token.', 'danger')
+            return redirect(url_for('login'))
+        user = User.query.get(user_id)
+        if not user:
+            flash('User not found.', 'danger')
+            return redirect(url_for('login'))
+        if request.method == 'POST':
+            password = request.form.get('password', '')
+            confirm = request.form.get('confirm', '')
+            if not password or not confirm:
+                flash('Please fill out all fields.', 'danger')
+                return render_template('reset_password.html')
+            if password != confirm:
+                flash('Passwords do not match.', 'danger')
+                return render_template('reset_password.html')
+            user.set_password(password)
+            db.session.commit()
+            flash('Your password has been reset. Please log in.', 'success')
+            return redirect(url_for('login'))
+        return render_template('reset_password.html')
+
+    # ==================== STUDENT ROUTES ====================
     @app.route('/student/dashboard')
     @login_required
     def student_dashboard():
@@ -327,7 +381,7 @@ def create_app():
             flash('Error deleting CV. Please try again.', 'danger')
         return redirect(url_for('student_dashboard'))
 
-    # JOB BROWSING FOR STUDENTS
+    # ==================== JOB BROWSING FOR STUDENTS ====================
     @app.route('/student/jobs')
     @login_required
     def student_jobs():
@@ -338,27 +392,138 @@ def create_app():
         jobs = JobPosting.query.filter_by(is_active=True).order_by(JobPosting.posted_date.desc()).all()
         return render_template('student/jobs.html', jobs=jobs)
 
-    @app.route('/job/apply/<int:job_id>')
+    @app.route('/job/apply/<int:job_id>', methods=['GET', 'POST'])
     @login_required
     def apply_job(job_id):
+        if current_user.role != 'student':
+            flash('Access denied. Students only.', 'danger')
+            return redirect(url_for('login'))
+        
         job = JobPosting.query.get_or_404(job_id)
+        profile = Profile.query.filter_by(user_id=current_user.id).first()
         
-        # Track the click
-        job.click_count += 1
+        # Check if already applied
+        existing_application = JobApplication.query.filter_by(job_id=job_id, student_id=current_user.id).first()
+        if existing_application:
+            flash('You have already applied to this job!', 'warning')
+            return redirect(url_for('student_jobs'))
         
-        job_click = JobClick(
-            job_id=job_id,
-            student_id=current_user.id if current_user.is_authenticated else None,
-            ip_address=request.remote_addr
-        )
+        if request.method == 'POST':
+            try:
+                # Handle CV upload
+                if 'cv' not in request.files:
+                    flash('Please upload your CV.', 'danger')
+                    return redirect(request.url)
+                
+                file = request.files['cv']
+                if file.filename == '':
+                    flash('Please select a CV file.', 'danger')
+                    return redirect(request.url)
+                
+                # Validate file type
+                allowed_extensions = {'pdf', 'doc', 'docx'}
+                if not ('.' in file.filename and file.filename.rsplit('.', 1)[1].lower() in allowed_extensions):
+                    flash('Invalid file type. Please upload PDF, DOC, or DOCX files only.', 'danger')
+                    return redirect(request.url)
+                
+                # Save CV file
+                filename = secure_filename(file.filename)
+                unique_filename = f"{uuid.uuid4()}_{filename}"
+                upload_folder = current_app.config['UPLOAD_FOLDER']
+                
+                if not os.path.exists(upload_folder):
+                    os.makedirs(upload_folder)
+                
+                filepath = os.path.join(upload_folder, unique_filename)
+                file.save(filepath)
+                
+                # Create application
+                application = JobApplication(
+                    job_id=job_id,
+                    student_id=current_user.id,
+                    student_name=request.form.get('name', '').strip(),
+                    student_email=request.form.get('email', '').strip(),
+                    student_phone=request.form.get('phone', '').strip(),
+                    cover_letter=request.form.get('cover_letter', '').strip(),
+                    cv_filename=unique_filename,
+                    cv_original_filename=filename,
+                    status='Pending'
+                )
+                
+                db.session.add(application)
+                
+                # Increment click count
+                job.click_count += 1
+                
+                db.session.commit()
+                
+                flash('Application submitted successfully!', 'success')
+                return redirect(url_for('student_jobs'))
+                
+            except Exception as e:
+                db.session.rollback()
+                flash('Error submitting application. Please try again.', 'danger')
+                return redirect(request.url)
         
-        db.session.add(job_click)
+        return render_template('student/apply_job.html', job=job, profile=profile)
+
+    # ==================== COMPANY BROWSING FOR STUDENTS ====================
+    @app.route('/student/companies')
+    @login_required
+    def student_companies():
+        if current_user.role != 'student':
+            flash('Access denied. Students only.', 'danger')
+            return redirect(url_for('login'))
+        
+        companies = Company.query.order_by(Company.is_featured.desc(), Company.created_date.desc()).all()
+        followed_company_ids = [f.company_id for f in CompanyFollow.query.filter_by(student_id=current_user.id).all()]
+        
+        return render_template('student/companies.html', companies=companies, followed_company_ids=followed_company_ids)
+
+    @app.route('/student/companies/<int:company_id>')
+    @login_required
+    def student_view_company(company_id):
+        if current_user.role != 'student':
+            flash('Access denied. Students only.', 'danger')
+            return redirect(url_for('login'))
+        
+        company = Company.query.get_or_404(company_id)
+        company.view_count += 1
         db.session.commit()
         
-        # Redirect to the application link
-        return redirect(job.application_link)
+        company_jobs = JobPosting.query.filter_by(company_name=company.company_name, is_active=True).all()
+        is_following = CompanyFollow.query.filter_by(company_id=company_id, student_id=current_user.id).first() is not None
+        follower_count = CompanyFollow.query.filter_by(company_id=company_id).count()
+        
+        return render_template('student/view_company.html', 
+                             company=company, 
+                             company_jobs=company_jobs,
+                             is_following=is_following,
+                             follower_count=follower_count)
 
-    # EMPLOYER ROUTES
+    @app.route('/student/companies/follow/<int:company_id>', methods=['POST'])
+    @login_required
+    def student_follow_company(company_id):
+        if current_user.role != 'student':
+            flash('Access denied. Students only.', 'danger')
+            return redirect(url_for('login'))
+        
+        company = Company.query.get_or_404(company_id)
+        existing_follow = CompanyFollow.query.filter_by(company_id=company_id, student_id=current_user.id).first()
+        
+        if existing_follow:
+            db.session.delete(existing_follow)
+            db.session.commit()
+            flash(f'You unfollowed {company.company_name}', 'info')
+        else:
+            follow = CompanyFollow(company_id=company_id, student_id=current_user.id)
+            db.session.add(follow)
+            db.session.commit()
+            flash(f'You are now following {company.company_name}!', 'success')
+        
+        return redirect(url_for('student_view_company', company_id=company_id))
+
+    # ==================== EMPLOYER ROUTES ====================
     @app.route('/employer/dashboard')
     @login_required
     def employer_dashboard():
@@ -420,7 +585,81 @@ def create_app():
             flash('Error displaying file.', 'danger')
             return redirect(url_for('employer_dashboard'))
 
-    # JOB POSTING MANAGEMENT FOR EMPLOYERS
+    @app.route('/employer/delete_student/<int:user_id>', methods=['POST'])
+    @login_required
+    def employer_delete_student(user_id):
+        if current_user.role != 'employer':
+            flash('Access denied. Employers only.', 'danger')
+            return redirect(url_for('login'))
+        try:
+            user = User.query.get(user_id)
+            if not user:
+                flash('User not found.', 'danger')
+                return redirect(url_for('employer_dashboard'))
+            profile = Profile.query.filter_by(user_id=user_id).first()
+            cvs = CV.query.filter_by(user_id=user_id).all()
+            upload_folder = current_app.config['UPLOAD_FOLDER']
+            for cv in cvs:
+                filepath = os.path.join(upload_folder, cv.filename)
+                if os.path.exists(filepath):
+                    try:
+                        os.remove(filepath)
+                    except Exception:
+                        pass
+            CV.query.filter_by(user_id=user_id).delete()
+            if profile:
+                db.session.delete(profile)
+            db.session.delete(user)
+            db.session.commit()
+            flash(f'Student profile and all associated data have been deleted.', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash('Error deleting student profile. Please try again.', 'danger')
+        return redirect(url_for('employer_dashboard'))
+
+    @app.route('/employer/delete_cv/<int:cv_id>', methods=['POST'])
+    @login_required
+    def employer_delete_cv(cv_id):
+        if current_user.role != 'employer':
+            flash('Access denied. Employers only.', 'danger')
+            return redirect(url_for('login'))
+        try:
+            cv = CV.query.get(cv_id)
+            if not cv:
+                flash('CV not found.', 'danger')
+                return redirect(url_for('employer_dashboard'))
+            user_id = cv.user_id
+            upload_folder = current_app.config['UPLOAD_FOLDER']
+            filepath = os.path.join(upload_folder, cv.filename)
+            if os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                except Exception:
+                    pass
+            db.session.delete(cv)
+            db.session.commit()
+            flash('CV deleted successfully.', 'success')
+            return redirect(url_for('employer_view_profile', user_id=user_id))
+        except Exception as e:
+            db.session.rollback()
+            flash('Error deleting CV. Please try again.', 'danger')
+            return redirect(url_for('employer_dashboard'))
+
+    @app.route('/employer/details')
+    @login_required
+    def employer_details():
+        if current_user.role != 'employer':
+            flash('Access denied. Employers only.', 'danger')
+            return redirect(url_for('login'))
+            
+        employer_info = {
+            "company_name": "Your Company Name Here",
+            "contact_email": "contact@yourcompany.com",
+            "instructions": "Please use these details to contact us or access employer resources."
+        }
+        return render_template('employer/details.html', employer_info=employer_info)
+
+    # ==================== JOB POSTING MANAGEMENT ====================
     @app.route('/employer/jobs')
     @login_required
     def employer_jobs():
@@ -538,6 +777,7 @@ def create_app():
         
         try:
             JobClick.query.filter_by(job_id=job_id).delete()
+            JobApplication.query.filter_by(job_id=job_id).delete()
             db.session.delete(job)
             db.session.commit()
             flash('Job deleted successfully!', 'success')
@@ -546,7 +786,77 @@ def create_app():
             flash('Error deleting job. Please try again.', 'danger')
         
         return redirect(url_for('employer_jobs'))
-# COMPANY MANAGEMENT FOR EMPLOYERS
+
+    @app.route('/employer/jobs/analytics/<int:job_id>')
+    @login_required
+    def employer_job_analytics(job_id):
+        if current_user.role != 'employer':
+            flash('Access denied. Employers only.', 'danger')
+            return redirect(url_for('login'))
+        
+        job = JobPosting.query.get_or_404(job_id)
+        
+        if job.employer_id != current_user.id:
+            flash('You do not have permission to view this job analytics.', 'danger')
+            return redirect(url_for('employer_jobs'))
+        
+        # Get all applications for this job
+        applications = JobApplication.query.filter_by(job_id=job_id).order_by(JobApplication.application_date.desc()).all()
+        
+        return render_template('employer/job_analytics.html', job=job, applications=applications)
+
+    @app.route('/employer/application/<int:application_id>/download_cv')
+    @login_required
+    def employer_download_application_cv(application_id):
+        if current_user.role != 'employer':
+            flash('Access denied. Employers only.', 'danger')
+            return redirect(url_for('login'))
+        
+        application = JobApplication.query.get_or_404(application_id)
+        job = JobPosting.query.get(application.job_id)
+        
+        if job.employer_id != current_user.id:
+            flash('You do not have permission to access this application.', 'danger')
+            return redirect(url_for('employer_jobs'))
+        
+        upload_folder = current_app.config['UPLOAD_FOLDER']
+        filepath = os.path.join(upload_folder, application.cv_filename)
+        
+        if not os.path.exists(filepath):
+            flash('CV file not found.', 'danger')
+            return redirect(url_for('employer_job_analytics', job_id=application.job_id))
+        
+        try:
+            return send_file(filepath, as_attachment=True, download_name=application.cv_original_filename)
+        except Exception as e:
+            flash('Error downloading CV.', 'danger')
+            return redirect(url_for('employer_job_analytics', job_id=application.job_id))
+
+    @app.route('/employer/application/<int:application_id>/update_status', methods=['POST'])
+    @login_required
+    def employer_update_application_status(application_id):
+        if current_user.role != 'employer':
+            flash('Access denied. Employers only.', 'danger')
+            return redirect(url_for('login'))
+        
+        application = JobApplication.query.get_or_404(application_id)
+        job = JobPosting.query.get(application.job_id)
+        
+        if job.employer_id != current_user.id:
+            flash('You do not have permission to modify this application.', 'danger')
+            return redirect(url_for('employer_jobs'))
+        
+        new_status = request.form.get('status')
+        if new_status in ['Pending', 'Reviewing', 'Interview', 'Rejected', 'Accepted']:
+            application.status = new_status
+            db.session.commit()
+            flash(f'Application status updated to {new_status}!', 'success')
+        else:
+            flash('Invalid status.', 'danger')
+        
+        return redirect(url_for('employer_job_analytics', job_id=application.job_id))
+
+    # ==================== COMPANY MANAGEMENT ====================
     @app.route('/employer/companies')
     @login_required
     def employer_companies():
@@ -655,205 +965,7 @@ def create_app():
         
         return redirect(url_for('employer_companies'))
 
-    # COMPANY BROWSING FOR STUDENTS
-    @app.route('/student/companies')
-    @login_required
-    def student_companies():
-        if current_user.role != 'student':
-            flash('Access denied. Students only.', 'danger')
-            return redirect(url_for('login'))
-        
-        companies = Company.query.order_by(Company.is_featured.desc(), Company.created_date.desc()).all()
-        
-        # Get companies the student is following
-        followed_company_ids = [f.company_id for f in CompanyFollow.query.filter_by(student_id=current_user.id).all()]
-        
-        return render_template('student/companies.html', companies=companies, followed_company_ids=followed_company_ids)
-
-    @app.route('/student/companies/<int:company_id>')
-    @login_required
-    def student_view_company(company_id):
-        if current_user.role != 'student':
-            flash('Access denied. Students only.', 'danger')
-            return redirect(url_for('login'))
-        
-        company = Company.query.get_or_404(company_id)
-        
-        # Increment view count
-        company.view_count += 1
-        db.session.commit()
-        
-        # Get jobs from this company
-        company_jobs = JobPosting.query.filter_by(company_name=company.company_name, is_active=True).all()
-        
-        # Check if student follows this company
-        is_following = CompanyFollow.query.filter_by(company_id=company_id, student_id=current_user.id).first() is not None
-        
-        # Get follower count
-        follower_count = CompanyFollow.query.filter_by(company_id=company_id).count()
-        
-        return render_template('student/view_company.html', 
-                             company=company, 
-                             company_jobs=company_jobs,
-                             is_following=is_following,
-                             follower_count=follower_count)
-
-    @app.route('/student/companies/follow/<int:company_id>', methods=['POST'])
-    @login_required
-    def student_follow_company(company_id):
-        if current_user.role != 'student':
-            flash('Access denied. Students only.', 'danger')
-            return redirect(url_for('login'))
-        
-        company = Company.query.get_or_404(company_id)
-        
-        existing_follow = CompanyFollow.query.filter_by(company_id=company_id, student_id=current_user.id).first()
-        
-        if existing_follow:
-            # Unfollow
-            db.session.delete(existing_follow)
-            db.session.commit()
-            flash(f'You unfollowed {company.company_name}', 'info')
-        else:
-            # Follow
-            follow = CompanyFollow(company_id=company_id, student_id=current_user.id)
-            db.session.add(follow)
-            db.session.commit()
-            flash(f'You are now following {company.company_name}!', 'success')
-        
-        return redirect(url_for('student_view_company', company_id=company_id))
-    @app.route('/employer/jobs/analytics/<int:job_id>')
-    @login_required
-    def employer_job_analytics(job_id):
-        if current_user.role != 'employer':
-            flash('Access denied. Employers only.', 'danger')
-            return redirect(url_for('login'))
-        
-        job = JobPosting.query.get_or_404(job_id)
-        
-        if job.employer_id != current_user.id:
-            flash('You do not have permission to view this job analytics.', 'danger')
-            return redirect(url_for('employer_jobs'))
-        
-        clicks = JobClick.query.filter_by(job_id=job_id).order_by(JobClick.clicked_date.desc()).all()
-        
-        return render_template('employer/job_analytics.html', job=job, clicks=clicks)
-
-    @app.route('/employer/delete_student/<int:user_id>', methods=['POST'])
-    @login_required
-    def employer_delete_student(user_id):
-        if current_user.role != 'employer':
-            flash('Access denied. Employers only.', 'danger')
-            return redirect(url_for('login'))
-        try:
-            user = User.query.get(user_id)
-            if not user:
-                flash('User not found.', 'danger')
-                return redirect(url_for('employer_dashboard'))
-            profile = Profile.query.filter_by(user_id=user_id).first()
-            cvs = CV.query.filter_by(user_id=user_id).all()
-            upload_folder = current_app.config['UPLOAD_FOLDER']
-            for cv in cvs:
-                filepath = os.path.join(upload_folder, cv.filename)
-                if os.path.exists(filepath):
-                    try:
-                        os.remove(filepath)
-                    except Exception:
-                        pass
-            CV.query.filter_by(user_id=user_id).delete()
-            if profile:
-                db.session.delete(profile)
-            db.session.delete(user)
-            db.session.commit()
-            flash(f'Student profile and all associated data have been deleted.', 'success')
-        except Exception as e:
-            db.session.rollback()
-            flash('Error deleting student profile. Please try again.', 'danger')
-        return redirect(url_for('employer_dashboard'))
-
-    @app.route('/employer/delete_cv/<int:cv_id>', methods=['POST'])
-    @login_required
-    def employer_delete_cv(cv_id):
-        if current_user.role != 'employer':
-            flash('Access denied. Employers only.', 'danger')
-            return redirect(url_for('login'))
-        try:
-            cv = CV.query.get(cv_id)
-            if not cv:
-                flash('CV not found.', 'danger')
-                return redirect(url_for('employer_dashboard'))
-            user_id = cv.user_id
-            upload_folder = current_app.config['UPLOAD_FOLDER']
-            filepath = os.path.join(upload_folder, cv.filename)
-            if os.path.exists(filepath):
-                try:
-                    os.remove(filepath)
-                except Exception:
-                    pass
-            db.session.delete(cv)
-            db.session.commit()
-            flash('CV deleted successfully.', 'success')
-            return redirect(url_for('employer_view_profile', user_id=user_id))
-        except Exception as e:
-            db.session.rollback()
-            flash('Error deleting CV. Please try again.', 'danger')
-            return redirect(url_for('employer_dashboard'))
-
-    @app.route('/employer/details')
-    @login_required
-    def employer_details():
-        if current_user.role != 'employer':
-            flash('Access denied. Employers only.', 'danger')
-            return redirect(url_for('login'))
-            
-        employer_info = {
-            "company_name": "Your Company Name Here",
-            "contact_email": "contact@yourcompany.com",
-            "instructions": "Please use these details to contact us or access employer resources."
-        }
-        return render_template('employer/details.html', employer_info=employer_info)
-    
-    @app.route('/forgot_password', methods=['GET', 'POST'])
-    def forgot_password():
-        if request.method == 'POST':
-            email = request.form.get('email', '').strip()
-            user = User.query.filter_by(email=email).first()
-            if not user:
-                flash('No account found with that email.', 'danger')
-                return render_template('forgot_password.html')
-            token = serializer.dumps(user.id)
-            reset_url = url_for('reset_password', token=token, _external=True)
-            flash(f'Password reset link (simulated): {reset_url}', 'info')
-            flash('A password reset link has been sent to your email (simulated).', 'success')
-            return redirect(url_for('login'))
-        return render_template('forgot_password.html')
-
-    @app.route('/reset_password/<token>', methods=['GET', 'POST'])
-    def reset_password(token):
-        try:
-            user_id = serializer.loads(token, max_age=3600)
-        except itsdangerous.BadSignature:
-            flash('Invalid or expired token.', 'danger')
-            return redirect(url_for('login'))
-        user = User.query.get(user_id)
-        if not user:
-            flash('User not found.', 'danger')
-            return redirect(url_for('login'))
-        if request.method == 'POST':
-            password = request.form.get('password', '')
-            confirm = request.form.get('confirm', '')
-            if not password or not confirm:
-                flash('Please fill out all fields.', 'danger')
-                return render_template('reset_password.html')
-            if password != confirm:
-                flash('Passwords do not match.', 'danger')
-                return render_template('reset_password.html')
-            user.set_password(password)
-            db.session.commit()
-            flash('Your password has been reset. Please log in.', 'success')
-            return redirect(url_for('login'))
-        return render_template('reset_password.html')
-
+    # ==================== ERROR HANDLERS ====================
     @app.errorhandler(404)
     def not_found_error(error):
         return render_template('404.html'), 404
@@ -863,6 +975,7 @@ def create_app():
         db.session.rollback()
         return render_template('500.html'), 500
 
+    # ==================== DATABASE INITIALIZATION ====================
     with app.app_context():
         db.create_all()
         try:
@@ -875,5 +988,5 @@ def create_app():
 
     return app
 app = create_app()
-if __name__ == "__main__":  
-    app.run(debug=True, host='127.0.0.1', port=5000)
+if __name__ == "__main__":
+        app.run(debug=True, host='127.0.0.1', port=5000)
