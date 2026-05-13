@@ -59,6 +59,34 @@
             opacity: 0.8;
         }
 
+        /* ── OWNER BLOCK ── remove this entire block when ready to restore access */
+        .owner-block {
+            background: #fff4e5;
+            border: 2px solid #f0a500;
+            border-radius: 14px;
+            padding: 30px 25px;
+            text-align: center;
+        }
+
+        .owner-block .lock-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+        }
+
+        .owner-block h2 {
+            color: #b36200;
+            font-size: 1.3rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        .owner-block p {
+            color: #7a4500;
+            font-size: 1rem;
+            line-height: 1.6;
+        }
+        /* ── END OWNER BLOCK ── */
+
         .form-group {
             margin-bottom: 25px;
             position: relative;
@@ -169,14 +197,8 @@
         }
 
         @keyframes slideInDown {
-            from {
-                opacity: 0;
-                transform: translateY(-20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .divider {
@@ -221,51 +243,11 @@
             text-decoration: underline;
         }
 
-        /* Responsive Design */
         @media (max-width: 480px) {
-            .login-container {
-                padding: 30px 20px;
-                margin: 10px;
-            }
-            
-            .login-header h1 {
-                font-size: 2rem;
-            }
-            
-            .form-input {
-                padding: 12px 15px;
-            }
-            
-            .btn {
-                padding: 12px;
-                font-size: 1rem;
-            }
-        }
-
-        /* Loading animation for form submission */
-        .btn-primary.loading {
-            position: relative;
-            color: transparent;
-        }
-
-        .btn-primary.loading::after {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 20px;
-            height: 20px;
-            border: 2px solid transparent;
-            border-top: 2px solid white;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            to {
-                transform: translate(-50%, -50%) rotate(360deg);
-            }
+            .login-container { padding: 30px 20px; margin: 10px; }
+            .login-header h1 { font-size: 2rem; }
+            .form-input { padding: 12px 15px; }
+            .btn { padding: 12px; font-size: 1rem; }
         }
     </style>
 </head>
@@ -276,70 +258,33 @@
             <p>Welcome back! Please sign in to your account.</p>
         </div>
 
-        <!-- Flash Messages -->
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ 'danger' if category == 'error' else category }}">
-                        {{ message }}
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
+        <!-- ── OWNER BLOCK ── remove this entire section when ready to restore access -->
+        <div class="owner-block">
+            <div class="lock-icon">🔒</div>
+            <h2>This page is currently unavailable.</h2>
+            <p>Please contact the owner of this website to gain access.</p>
+        </div>
+        <!-- ── END OWNER BLOCK ── -->
 
-        <form id="loginForm" method="POST" action="{{ url_for('login') }}">
-            <div class="form-group">
-                <label for="email" class="form-label">Email Address</label>
-                <input type="email" class="form-input" id="email" name="email" required placeholder="Enter your email">
+        <!-- FORM HIDDEN UNTIL RESTORED — remove the style="display:none" below when ready -->
+        <div style="display:none">
+            <form id="loginForm" method="POST" action="{{ url_for('login') }}">
+                <div class="form-group">
+                    <label for="email" class="form-label">Email Address</label>
+                    <input type="email" class="form-input" id="email" name="email" required placeholder="Enter your email">
+                </div>
+                <div class="form-group">
+                    <label for="password" class="form-label">Password</label>
+                    <input type="password" class="form-input" id="password" name="password" required placeholder="Enter your password">
+                </div>
+                <button type="submit" class="btn btn-primary" id="loginBtn">Sign In</button>
+                <div class="divider"><span>or</span></div>
+                <a href="{{ url_for('register') }}" class="btn btn-link">Create New Account</a>
+            </form>
+            <div class="footer-text">
+                <p>Forgot your password? <a href="#" onclick="alert('Password reset feature coming soon!')">Reset it here</a></p>
             </div>
-
-            <div class="form-group">
-                <label for="password" class="form-label">Password</label>
-                <input type="password" class="form-input" id="password" name="password" required placeholder="Enter your password">
-            </div>
-
-            <button type="submit" class="btn btn-primary" id="loginBtn">Sign In</button>
-            
-            <div class="divider">
-                <span>or</span>
-            </div>
-            
-            <a href="{{ url_for('register') }}" class="btn btn-link">Create New Account</a>
-        </form>
-
-        <div class="footer-text">
-            <p>Forgot your password? <a href="#" onclick="alert('Password reset feature coming soon!')">Reset it here</a></p>
         </div>
     </div>
-
-    <script>
-        // Add some interactive functionality
-        const form = document.getElementById('loginForm');
-        const loginBtn = document.getElementById('loginBtn');
-        const inputs = document.querySelectorAll('.form-input');
-
-        // Add loading state on form submission
-        form.addEventListener('submit', function(e) {
-            // Don't prevent default - let the form submit to Flask
-            loginBtn.classList.add('loading');
-            loginBtn.disabled = true;
-        });
-
-        // Add floating label effect
-        inputs.forEach(input => {
-            input.addEventListener('focus', function() {
-                this.parentNode.classList.add('focused');
-            });
-            
-            input.addEventListener('blur', function() {
-                if (this.value === '') {
-                    this.parentNode.classList.remove('focused');
-                }
-            });
-        });
-
-        // Auto-focus first input
-        document.getElementById('email').focus();
-    </script>
 </body>
 </html>
